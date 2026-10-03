@@ -1,0 +1,14 @@
+# The planning tracker for this project lives in lifecycle-mcp's SQLite file; it is local.
+lifecycle.db
+lifecycle.db-shm
+lifecycle.db-wal
+
+exports/
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+dist/
+build/

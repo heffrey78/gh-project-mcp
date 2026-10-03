@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gh-project-mcp"
+version = "0.1.0"
+description = "MCP server for software lifecycle management on GitHub issues"
+authors = [{name = "Jeff Wikstrom"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.2,<3",
+    "httpx>=0.27,<1",
+    "jsonschema>=4.20,<5",
+]
+
+[project.scripts]
+gh-project-mcp = "gh_project_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.optional-dependencies]
+test = [
+    "pytest~=8.3",
+    "pytest-asyncio~=0.24",
+    "hypothesis~=6.118",
+]
+dev = [
+    "ruff~=0.8",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "UP",    # pyupgrade
+    "N",     # pep8-naming
+    "SIM",   # flake8-simplify
+    "ASYNC", # flake8-async
+    "T20",   # no print(): stdout is the MCP protocol channel
+]
+ignore = [
+    "N818",  # StatusRefused and NotARecord say what happened; an Error suffix would not add to that
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["T20"]
+"scripts/*" = ["T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["gh_project_mcp"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+# Live tests are opt-in: `pytest -m github_live` with GH_PROJECT_LIVE_REPO set.
+addopts = ["-ra", "--strict-markers", "--tb=short", "-m", "not github_live"]
+markers = [
+    "github_live: talks to a real GitHub repository; needs GH_PROJECT_LIVE_REPO naming a sandbox",
+    "smoke: starts the server as a subprocess; lifts the subprocess guard but not the network guard",
+]
