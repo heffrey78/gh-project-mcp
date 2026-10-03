@@ -26,7 +26,8 @@ async def test_cold_load_of_200_records_takes_three_requests_and_a_refresh_one(g
     assert len(tracker.records()) == 200
     assert github.requests == 3  # two pages of issues and the milestones
     await tracker.refresh()
-    assert github.requests == 4 and github.writes == []
+    # A refresh reads the open records' links every time (GitHub does not date link changes): 200 open, two pages.
+    assert github.requests == 5 and github.writes == []
 
 
 async def test_issues_without_a_kind_label_are_not_records(github):
@@ -186,3 +187,17 @@ async def test_a_change_made_during_the_cold_listing_is_not_missed(github):
     github.list_issues = original
     await tracker.refresh()
     assert tracker.get(task).status == "Complete"
+
+
+async def test_a_link_made_on_github_is_seen_though_updated_at_does_not_move(github):
+    """GitHub leaves updated_at alone when a link changes, so the refresh reads open records' links every time."""
+    requirement = seed(github, "requirement", status="Approved")
+    first, second = seed(github, "task"), seed(github, "task")
+    tracker = await _tracker(github)
+    before = github.issues[second].updated_at
+    github.behind_the_back(second, parent=requirement, blocked_by=[first])
+    assert github.issues[second].updated_at == before
+    github.reset_counters()
+    await tracker.refresh()
+    assert github.requests == 1
+    assert tracker.parent(second).number == requirement and [b.number for b in tracker.blockers(second)] == [first]

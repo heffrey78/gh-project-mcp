@@ -75,7 +75,7 @@ class Tracker:
         if cold:
             issues = await self.github.list_issues(labels=self.vocabulary.kind_labels)
         else:
-            issues = await self.github.list_issues(since=self._cursor)
+            issues = await self.github.list_changes(since=self._cursor, labels=self.vocabulary.kind_labels)
         for issue in issues:
             self._store(issue)
             if self._cursor is None or issue.updated_at > self._cursor:

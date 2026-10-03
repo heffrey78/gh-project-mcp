@@ -76,8 +76,11 @@ the architecture document before changing how records are stored; the README's "
 ## How it works
 
 - **The snapshot.** The first refresh lists the issues carrying a kind label (one GraphQL page per 100) and the
-  milestones. Later refreshes ask for every issue updated since the cursor, labelled or not, which is how a record
-  whose kind label was removed is dropped. After the cold load the cursor is GitHub's own clock (the `Date` header
+  milestones. Later refreshes are one GraphQL query with two halves: every open record with its current links, and
+  every issue updated since the cursor, labelled or not (which is how a closed record, or one whose kind label was
+  removed, is seen). Both halves are needed: GitHub does not bump `updated_at` when a sub-issue or blocked-by link
+  changes, so `since` alone never sees a link someone made on github.com. A link changed by hand on a *closed*
+  record is still missed until that issue changes some other way. After the cold load the cursor is GitHub's own clock (the `Date` header
   of the answer) less two minutes, not the newest record's `updated_at`: in a repository busy with other issues
   that would fetch all of them once. Never the local clock. A write's REST response carries no links, so
   `Tracker.put` keeps the links the snapshot holds; link writes update them with `set_parent`/`set_blocked_by`
@@ -94,17 +97,20 @@ the architecture document before changing how records are stored; the README's "
 - **Projects are milestones.** The description goes through the same codec with the `project` field spec, whose
   purpose is the text before the first heading, so a hand-written milestone reads as a project
 
-## What has and has not been run against real GitHub
+## What has been run against real GitHub
 
-Read paths have: on 2026-10-02 the HTTP client listed issues (GraphQL, with links, across 20 pages), milestones,
-labels, comments and a timeline from heffrey78/lifecycle-mcp in read-only mode, and a cold dashboard there cost 2
-requests and a warm one 1.
+`heffrey78/gh-project-sandbox` is the sandbox: private, and filled with test issues by design. On 2026-10-03:
 
-Writes have not. Everything that creates or changes an issue is tested against `FakeGitHub` and, for the HTTP
-client, against mock responses. Until the live contract run (TASK-0016) has happened, treat these as assumptions:
+- the contract tests (`pytest -m github_live`) pass against it
+- the script `scripts/live_run.py` drove a whole lifecycle through the server over stdio: 41 calls to all 14 tools, the only
+  errors the two refusals it asks for, and drift made by hand with `gh issue edit` reported. See `docs/live-run.md`
+- it found what the fake had wrong: link changes do not bump `updated_at`, and the timeline names a link's other
+  end under `sub_issue`, `parent_issue`, `blocked_by` or `blocking`. `FakeGitHub` now behaves the same way. When the
+  live run and the fake disagree, fix the fake and add a contract test that pins the behaviour
 
-- that adding a sub-issue or a blocked-by link bumps `updated_at` on the issues involved, which the incremental
-  refresh relies on (`test_link_changes_are_seen_by_since`)
-- the request and response shapes of the sub-issue and dependency write endpoints
-- that closing with `state_reason` and reopening behave as `FakeGitHub` does
-- that GitHub creates a label named on a new issue when the repository lacks it
+Run both after any change to `github/http.py`, `tracker.py` or the contract tests:
+
+```bash
+GH_PROJECT_LIVE_REPO=heffrey78/gh-project-sandbox uv run --extra test pytest -m github_live
+uv run python scripts/live_run.py heffrey78/gh-project-sandbox
+```

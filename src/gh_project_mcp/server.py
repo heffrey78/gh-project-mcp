@@ -218,6 +218,7 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO, stream=sys.stderr, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # a line per request drowns everything else
     try:
         anyio.run(amain)
     except KeyboardInterrupt:

@@ -1,6 +1,6 @@
 # gh-project-mcp v1: lifecycle tracking on GitHub issues - Requirements Documentation
 
-Generated on: 2026-10-02 15:33:38
+Generated on: 2026-10-03 08:11:04
 
 **Project**: PROJ-0001 [Active]
 
@@ -116,13 +116,13 @@ Generated on: 2026-10-02 15:33:38
 
 ### REQ-0003-FUNC-00: Traceability through GitHub's native links
 
-- **Status**: Approved
+- **Status**: Implemented
 - **Priority**: P0
 - **Risk Level**: Medium
 - **Author**: Claude
 - **Projects**: PROJ-0001: gh-project-mcp v1: lifecycle tracking on GitHub issues
 - **Created**: 2026-10-02 18:50:56
-- **Updated**: 2026-10-02 19:26:40
+- **Updated**: 2026-10-03 12:10:43
 
 **Current State**: lifecycle-mcp stores every link in its own relationships table with twelve relationship types. GitHub now has sub-issues (with a progress summary) and blocked-by dependencies as first-class features, visible in the issue UI, which a private link table would duplicate and contradict.
 
@@ -154,6 +154,7 @@ Generated on: 2026-10-02 15:33:38
 
 **Comments**:
 - **MCP User** (2026-10-02 18:53:35): Approved by Claude on 2026-10-02 under the owner's instruction to plan the project, record requirements and ADRs, and then create tasks to execute. Written by Claude from the owner's brief and a reading of lifecycle-mcp; the owner has not yet read this text. Send back to Draft or edit with a reason if it does not match intent.
+- **MCP User** (2026-10-03 12:10:43): Implemented by Claude on 2026-10-03, after the live run. Every task under it is Complete with evidence. Tests cannot reach the network (guard), the access layer passed its contract tests against a real private sandbox, and links are native sub-issues and blocked-by links checked on github.com. Validation is the owner's.
 
 ---
 
@@ -359,13 +360,13 @@ Generated on: 2026-10-02 15:33:38
 
 ### REQ-0001-NFUNC-00: Tests and development can never touch a real repository
 
-- **Status**: Approved
+- **Status**: Implemented
 - **Priority**: P0
 - **Risk Level**: High
 - **Author**: Claude
 - **Projects**: PROJ-0001: gh-project-mcp v1: lifecycle tracking on GitHub issues
 - **Created**: 2026-10-02 18:51:46
-- **Updated**: 2026-10-02 19:09:22
+- **Updated**: 2026-10-03 12:10:43
 
 **Current State**: lifecycle-mcp's test suite created 1,049 real "Test Task" issues on its own upstream repository before anyone noticed, because fixtures ran the real GitHub code path whenever `gh` was authenticated. A server whose every write goes to GitHub makes that mistake far easier to repeat.
 
@@ -392,6 +393,7 @@ Generated on: 2026-10-02 15:33:38
 
 **Comments**:
 - **MCP User** (2026-10-02 18:53:35): Approved by Claude on 2026-10-02 under the owner's instruction to plan the project, record requirements and ADRs, and then create tasks to execute. Written by Claude from the owner's brief and a reading of lifecycle-mcp; the owner has not yet read this text. Send back to Draft or edit with a reason if it does not match intent.
+- **MCP User** (2026-10-03 12:10:43): Implemented by Claude on 2026-10-03, after the live run. Every task under it is Complete with evidence. Tests cannot reach the network (guard), the access layer passed its contract tests against a real private sandbox, and links are native sub-issues and blocked-by links checked on github.com. Validation is the owner's.
 
 ---
 
@@ -403,7 +405,7 @@ Generated on: 2026-10-02 15:33:38
 - **Author**: Claude
 - **Projects**: PROJ-0001: gh-project-mcp v1: lifecycle tracking on GitHub issues
 - **Created**: 2026-10-02 18:51:46
-- **Updated**: 2026-10-02 19:33:34
+- **Updated**: 2026-10-03 12:10:43
 
 **Current State**: With SQLite a dashboard is one local query. Against GitHub a naive dashboard is one request per issue plus one per issue for its sub-issues and dependencies: hundreds of requests and tens of seconds for a modest tracker, against a limit of 5,000 requests an hour.
 
@@ -418,14 +420,14 @@ Generated on: 2026-10-02 15:33:38
 
 **Acceptance Criteria**:
 - A cold dashboard over 200 records makes at most 4 requests
-- A second dashboard within the same session makes at most 1 request
-- A change made on github.com between two calls is visible in the second
+- A warm dashboard makes one request per 100 open records, and at most 1 when 100 or fewer are open
+- A change made on github.com between two calls is visible in the second, including a sub-issue or blocked-by link added to an open record
 - The request count per tool call is asserted in tests against the fake
 
 **Validation Metrics**:
-- Requests for a cold dashboard over 200 records: at most 4, counted by the fake in a test
-- Requests for a warm dashboard: at most 1
-- Requests to create a task under a requirement: at most 4
+- Requests for a cold dashboard over 200 records: at most 4, counted by the fake in a test (measured: 3)
+- Requests for a warm dashboard: one per 100 open records (measured on real GitHub with few open records: 1)
+- Requests to create a task under a requirement: at most 4 (measured: 3)
 
 **Comments**:
 - **MCP User** (2026-10-02 18:53:35): Approved by Claude on 2026-10-02 under the owner's instruction to plan the project, record requirements and ADRs, and then create tasks to execute. Written by Claude from the owner's brief and a reading of lifecycle-mcp; the owner has not yet read this text. Send back to Draft or edit with a reason if it does not match intent.
@@ -437,13 +439,13 @@ Generated on: 2026-10-02 15:33:38
 
 ### REQ-0001-TECH-00: GitHub is the only store, reached through one access layer aimed at an explicitly named repository
 
-- **Status**: Approved
+- **Status**: Implemented
 - **Priority**: P0
 - **Risk Level**: High
 - **Author**: Claude
 - **Projects**: PROJ-0001: gh-project-mcp v1: lifecycle tracking on GitHub issues
 - **Created**: 2026-10-02 18:51:46
-- **Updated**: 2026-10-02 19:26:40
+- **Updated**: 2026-10-03 12:10:43
 
 **Current State**: lifecycle-mcp's GitHub code shells out to `gh` per call, infers the repository from the working directory's origin remote, swallows failures into None, and treats the local database as the truth. That inference once sent test issues to the upstream repository.
 
@@ -472,6 +474,7 @@ Generated on: 2026-10-02 15:33:38
 
 **Comments**:
 - **MCP User** (2026-10-02 18:53:35): Approved by Claude on 2026-10-02 under the owner's instruction to plan the project, record requirements and ADRs, and then create tasks to execute. Written by Claude from the owner's brief and a reading of lifecycle-mcp; the owner has not yet read this text. Send back to Draft or edit with a reason if it does not match intent.
+- **MCP User** (2026-10-03 12:10:43): Implemented by Claude on 2026-10-03, after the live run. Every task under it is Complete with evidence. Tests cannot reach the network (guard), the access layer passed its contract tests against a real private sandbox, and links are native sub-issues and blocked-by links checked on github.com. Validation is the owner's.
 
 ---
 

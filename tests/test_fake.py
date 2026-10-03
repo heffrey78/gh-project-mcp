@@ -42,3 +42,12 @@ async def test_returned_issues_are_copies():
     (listed,) = await github.list_issues()
     listed.labels.append("mutated")
     assert "mutated" not in github.issues[1].labels
+
+
+async def test_a_link_change_leaves_updated_at_alone_as_github_does():
+    github = FakeGitHub()
+    parent, child = seed(github, "requirement"), seed(github, "task")
+    before = github.issues[child].updated_at, github.issues[parent].updated_at
+    await github.add_sub_issue(parent, child, github.issues[child].id)
+    await github.add_blocked_by(parent, child, github.issues[child].id)
+    assert (github.issues[child].updated_at, github.issues[parent].updated_at) == before

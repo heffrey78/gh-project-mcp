@@ -135,6 +135,8 @@ async def test_milestones_labels_and_timeline():
                 {"event": "commented", "user": {"login": "b"}, "created_at": "t2", "body": "first line\nmore"},
                 {"event": "closed", "actor": {"login": "a"}, "created_at": "t3", "state_reason": "completed"},
                 {"event": "committed"},
+                {"event": "sub_issue_added", "actor": {"login": "a"}, "created_at": "t4", "sub_issue": {"number": 27}},
+                {"event": "blocked_by_added", "actor": {"login": "a"}, "created_at": "t5", "blocked_by": {"number": 9}},
             ])  # fmt: skip
         if "milestones" in request.url.path:
             milestone = {"number": 1, "title": "v1", "description": None, "state": "open", "html_url": "u"}
@@ -145,6 +147,7 @@ async def test_milestones_labels_and_timeline():
     events = await github.list_events(1)
     assert [(e.kind, e.actor, e.detail) for e in events] == [
         ("labeled", "a", "task"), ("commented", "b", "first line"), ("closed", "a", "completed"), ("committed", "", ""),
+        ("sub_issue_added", "a", "#27"), ("blocked_by_added", "a", "#9"),
     ]  # fmt: skip
     (listed,) = await github.list_milestones()
     assert (listed.title, listed.description) == ("v1", "") and "state=all" in str(seen[1].url)
@@ -267,3 +270,25 @@ def test_configuration_comes_from_the_environment(monkeypatch):
                  "GH_PROJECT_CALL_LOG", "GITHUB_TOKEN", "GH_TOKEN"):  # fmt: skip
         monkeypatch.delenv(name)
     assert Config.from_env() == Config()
+
+
+async def test_a_refresh_is_one_query_for_open_records_and_recent_changes():
+    def handler(request):
+        query = body(request)["query"]
+        if "open: issues" in query:
+            return httpx.Response(200, json={"data": {"repository": {
+                "open": {"nodes": [node(1, parent={"number": 2})], "pageInfo": {"hasNextPage": True, "endCursor": "O"}},
+                "changed": {"nodes": [node(1), node(3, state="CLOSED", stateReason="COMPLETED")],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None}},
+            }}})  # fmt: skip
+        assert body(request)["variables"]["cursor"] == "O" and body(request)["variables"]["states"] == ["OPEN"]
+        page = {"nodes": [node(4)], "pageInfo": {"hasNextPage": False, "endCursor": None}}
+        return httpx.Response(200, json={"data": {"repository": {"issues": page}}})
+
+    github, seen = client(handler)
+    issues = await github.list_changes(since="2026-01-01T00:00:00Z", labels=["task"])
+    assert [i.number for i in issues] == [1, 3, 4] and len(seen) == 2
+    assert body(seen[0])["variables"] == {
+        "owner": "octo", "name": "sandbox", "since": "2026-01-01T00:00:00Z", "labels": ["task"],
+    }  # fmt: skip
+    assert issues[0].parent is None  # the changed half came after the open half and is as fresh

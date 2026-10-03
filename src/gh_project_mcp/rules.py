@@ -207,7 +207,8 @@ def move_reasons(tracker: Tracker, record: Record, goal: str) -> list[str]:
             subtasks = open_subtasks(tracker, record)
             if subtasks:
                 reasons.append(f"It has open subtasks: {_names(subtasks)}.")
-            if record.status == "Not Started":
+            worked_through = [c for c in tracker.children(record.number) if c.kind == TASK]
+            if record.status == "Not Started" and not (worked_through and all(map(is_settled, worked_through))):
                 reasons.append("It was never started.")
             if record.status == "Blocked":
                 reasons.append("It is still Blocked.")
@@ -247,8 +248,9 @@ def drift(tracker: Tracker) -> list[tuple[Record, str]]:
     found: list[tuple[Record, str]] = []
     for record in tracker.records():
         found += [(record, problem) for problem in record.problems]
-        if record.issue.body.strip() and not record.doc.recognised:
-            # Someone wrote this issue by hand. An empty body is merely thin, and the server can produce one.
+        if record.issue.body.strip() and not record.doc.recognised and not is_settled(record):
+            # Someone wrote this issue by hand. An empty body is merely thin, and the server can produce one; a
+            # finished record is not worth chasing for how it was written.
             found.append((record, "its body holds no fields the server recognises"))
         if record.kind == REQUIREMENT and record.status == "Validated":
             still_open = open_tasks(tracker, record)

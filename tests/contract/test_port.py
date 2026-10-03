@@ -5,6 +5,7 @@ import pytest
 from gh_project_mcp.github.port import GitHubError
 
 
+# Labels outside the server's vocabulary: a sandbox's tracker must not count these issues as records.
 async def _issue(port, title="Contract test issue", labels=("contract-test",), **kwargs):
     return await port.create_issue(title, kwargs.pop("body", "body"), list(labels), **kwargs)
 
@@ -14,12 +15,12 @@ def _find(issues, number):
 
 
 async def test_a_created_issue_is_listed_with_what_it_was_given(port):
-    created = await _issue(port, body="first line\n\n## Section\n\ntext", labels=("contract-test", "task"))
+    created = await _issue(port, body="first line\n\n## Section\n\ntext", labels=("contract-test", "contract-kind"))
     assert created.number > 0 and created.id > 0 and created.url.endswith(f"/issues/{created.number}")
     listed = _find(await port.list_issues(), created.number)
     assert listed.title == "Contract test issue"
     assert listed.body == "first line\n\n## Section\n\ntext"
-    assert sorted(listed.labels) == ["contract-test", "task"]
+    assert sorted(listed.labels) == ["contract-kind", "contract-test"]
     assert (listed.state, listed.parent, listed.sub_issues, listed.blocked_by) == ("open", None, [], [])
     assert listed.id == created.id and listed.updated_at
 
@@ -30,12 +31,12 @@ async def test_a_label_the_repository_lacks_is_created_on_use(port):
 
 
 async def test_update_changes_only_what_is_named(port):
-    issue = await _issue(port, labels=("contract-test", "task"))
-    updated = await port.update_issue(issue.number, labels=["contract-test", "task", "status:blocked"])
+    issue = await _issue(port, labels=("contract-test", "contract-kind"))
+    updated = await port.update_issue(issue.number, labels=["contract-test", "contract-kind", "contract-state"])
     assert (updated.title, updated.body, updated.state) == ("Contract test issue", "body", "open")
-    assert sorted(updated.labels) == ["contract-test", "status:blocked", "task"]
+    assert sorted(updated.labels) == ["contract-kind", "contract-state", "contract-test"]
     updated = await port.update_issue(issue.number, body="new body")
-    assert updated.body == "new body" and "status:blocked" in updated.labels
+    assert updated.body == "new body" and "contract-state" in updated.labels
 
 
 async def test_closing_carries_a_reason_and_reopening_clears_it(port):
@@ -51,12 +52,12 @@ async def test_closing_carries_a_reason_and_reopening_clears_it(port):
 
 
 async def test_labels_and_state_change_in_one_update(port):
-    issue = await _issue(port, labels=("contract-test", "task", "status:in-progress"))
+    issue = await _issue(port, labels=("contract-test", "contract-kind", "contract-state"))
     updated = await port.update_issue(
-        issue.number, labels=["contract-test", "task"], state="closed", state_reason="completed", body="done"
+        issue.number, labels=["contract-test", "contract-kind"], state="closed", state_reason="completed", body="done"
     )
     assert (updated.state, updated.state_reason, updated.body) == ("closed", "completed", "done")
-    assert "status:in-progress" not in updated.labels
+    assert "contract-state" not in updated.labels
 
 
 async def test_a_missing_issue_is_a_404(port):
@@ -125,17 +126,35 @@ async def test_since_returns_what_changed_after_it(port):
     assert old.number in [i.number for i in changed]
 
 
-async def test_link_changes_are_seen_by_since(port):
-    """ADR-0001's open risk: the incremental refresh relies on a link change bumping updated_at."""
-    parent, child = await _issue(port, "Contract parent"), await _issue(port, "Contract child")
-    blocker = await _issue(port, "Contract blocker")
+async def test_a_refresh_sees_links_changed_since_though_updated_at_does_not_move(port):
+    """ADR-0001's risk, settled on 2026-10-03: GitHub does not bump updated_at when a sub-issue or blocked-by link
+    is added, so `since` alone misses it. list_changes returns the open records with their current links."""
+    labels = ("contract-test", "contract-kind")
+    parent, child = await _issue(port, "Contract parent", labels), await _issue(port, "Contract child", labels)
+    blocker = await _issue(port, "Contract blocker", labels)
     cursor = max(i.updated_at for i in await port.list_issues())
     await port.add_sub_issue(parent.number, child.number, child.id)
     await port.add_blocked_by(child.number, blocker.number, blocker.id)
-    changed = {i.number: i for i in await port.list_issues(since=cursor)}
+    changed = {i.number: i for i in await port.list_changes(since=cursor, labels=["contract-kind"])}
     assert changed[child.number].parent == parent.number
     assert changed[child.number].blocked_by == [blocker.number]
     assert changed[parent.number].sub_issues == [child.number]
+
+
+async def test_a_refresh_sees_an_issue_closed_or_unlabelled_since(port):
+    labels = ("contract-test", "contract-kind")
+    closed, unlabelled = (
+        await _issue(port, "Contract closed", labels),
+        await _issue(port, "Contract unlabelled", labels),
+    )
+    untouched = await _issue(port, "Contract other", ("contract-test",))
+    cursor = max(i.updated_at for i in await port.list_issues())
+    await port.update_issue(closed.number, state="closed", state_reason="completed")
+    await port.update_issue(unlabelled.number, labels=["contract-test"])
+    changed = {i.number: i for i in await port.list_changes(since=cursor, labels=["contract-kind"])}
+    assert changed[closed.number].state == "closed"
+    assert changed[unlabelled.number].labels == ["contract-test"]
+    assert untouched.number not in changed or changed[untouched.number].updated_at >= cursor
 
 
 async def test_milestones(port):
@@ -148,6 +167,7 @@ async def test_milestones(port):
     assert listed.state == "closed" and listed.description == "Changed."
     await port.update_milestone(milestone.number, state="open")
     issue = await _issue(port, milestone=milestone.number)
+    await port.update_milestone(milestone.number, state="closed")  # left closed, off a dashboard's project list
     assert _find(await port.list_issues(), issue.number).milestone == milestone.number
     cleared = await port.update_issue(issue.number, milestone=None)
     assert cleared.milestone is None
@@ -157,10 +177,13 @@ async def test_milestones(port):
 
 
 async def test_the_timeline_records_what_happened(port):
-    issue = await _issue(port, labels=("contract-test", "task"))
-    await port.update_issue(issue.number, labels=["contract-test", "task", "status:blocked"])
+    issue = await _issue(port, labels=("contract-test", "contract-kind"))
+    await port.update_issue(issue.number, labels=["contract-test", "contract-kind", "contract-state"])
     await port.add_comment(issue.number, "why")
     await port.update_issue(issue.number, state="closed", state_reason="completed")
-    kinds = [e.kind for e in await port.list_events(issue.number)]
-    assert {"labeled", "commented", "closed"} <= set(kinds)
-    assert kinds.index("labeled") < kinds.index("commented") < kinds.index("closed")
+    events = await port.list_events(issue.number)
+    assert {"labeled", "commented", "closed"} <= {e.kind for e in events}
+    # Oldest first, to the second. GitHub orders events within one second as it likes (seen 2026-10-03), so a
+    # comment can be listed before a label added in the same second; nothing may rely on more than this.
+    times = [e.created_at for e in events if e.created_at]
+    assert times == sorted(times)

@@ -8,7 +8,7 @@ from typing import Any
 
 from .port import GitHub, GitHubError
 
-_READS = ("list_issues", "list_comments", "list_events", "list_milestones", "list_labels")
+_READS = ("list_issues", "list_changes", "list_comments", "list_events", "list_milestones", "list_labels")
 
 
 class ReadOnlyGitHub:

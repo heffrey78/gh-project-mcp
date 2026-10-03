@@ -1,6 +1,6 @@
 # gh-project-mcp v1: lifecycle tracking on GitHub issues - Tasks Documentation
 
-Generated on: 2026-10-02 15:33:38
+Generated on: 2026-10-03 08:11:04
 
 **Project**: PROJ-0001 [Active]
 
@@ -643,16 +643,15 @@ Generated on: 2026-10-02 15:33:38
 
 ---
 
-## Blocked Tasks
-
 ### TASK-0016-00-00: Live verification against a sandbox GitHub repository
 
-- **Status**: Blocked
+- **Status**: Complete
 - **Priority**: P0
 - **Effort**: M
 - **Assignee**: Claude
 - **Created**: 2026-10-02 18:55:22
-- **Updated**: 2026-10-02 19:33:33
+- **Updated**: 2026-10-03 12:10:43
+- **Evidence**: Against heffrey78/gh-project-sandbox on 2026-10-03: `pytest -m github_live`: 16 passed, three runs in a row after the fixes. scripts/live_run.py over stdio: 41 calls to all 14 tools, the only 2 errors the deliberate refusals, drift made by hand with `gh issue edit` reported. Offline suite 251 passed. Recorded in docs/live-run.md with the full transcript in docs/live-run-transcript.md.
 
 **User Story**: As the owner, I want proof that the server does on real GitHub what it does on the fake, before I trust it with a real repository.
 
@@ -685,6 +684,8 @@ Generated on: 2026-10-02 15:33:38
 
 **Comments**:
 - **MCP User** (2026-10-02 19:33:33): Waiting on the owner. The live run creates a GitHub repository and issues in it, which is outward-facing and was not asked for. Needed: either the owner creates a private repository whose name contains `sandbox` (for example heffrey78/gh-project-sandbox) or says to create one. Then: `GH_PROJECT_LIVE_REPO=<repo> uv run --extra test pytest -m github_live` (15 contract tests, already written), followed by the scripted lifecycle over stdio. Done so far without writing anything: the HTTP client's read paths ran against heffrey78/lifecycle-mcp in read-only mode on 2026-10-02 (GraphQL snapshot across 20 pages, milestones, labels, comments, timeline; cold dashboard 2 requests, warm 1).
+- **MCP User** (2026-10-03 11:44:34): Unblocked 2026-10-03: the owner asked for the private sandbox repository, created as heffrey78/gh-project-sandbox.
+- **MCP User** (2026-10-03 12:10:43): The run did what it was for: it found five places where the fake or the code disagreed with GitHub, and each is fixed with a test. The important one settles ADR-0001's open risk the bad way: GitHub does not bump updated_at when a link changes, so the refresh now reads every open record's links in the same single query. The fake now behaves as GitHub does. Sandbox issues from the runs are left closed and inspectable; the contract tests' throwaway issues no longer carry kind labels.
 
 ---
 

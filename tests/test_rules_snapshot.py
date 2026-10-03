@@ -156,3 +156,20 @@ async def test_drift_is_what_the_servers_own_rules_would_not_have_produced(githu
         (stale, "is Superseded but no decision names it in a Supersedes section"),
         (replaced, f"is Accepted though #{replacement} (Accepted) supersedes it"),
     }
+
+
+async def test_finished_records_are_not_chased_for_how_they_were_written(github):
+    seed(github, "task", status="Complete", body="written by hand")
+    seed(github, "requirement", status="Deprecated", body="never mind")
+    assert rules.drift(await _tracker(github)) == []
+
+
+async def test_a_parent_finished_through_its_subtasks_counts_as_started(github):
+    requirement = seed(github, "requirement", status="Approved")
+    parent = seed(github, "task", parent=requirement)
+    seed(github, "task", status="Complete", parent=parent)
+    seed(github, "task", status="Abandoned", parent=parent)
+    lone = seed(github, "task", parent=requirement)
+    tracker = await _tracker(github)
+    assert rules.move_reasons(tracker, tracker.get(parent), "Complete") == []
+    assert rules.move_reasons(tracker, tracker.get(lone), "Complete") == ["It was never started."]

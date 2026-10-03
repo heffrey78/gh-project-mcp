@@ -56,7 +56,10 @@ class FakeGitHub:
             setattr(issue, name, value)
         if changes.get("state") == "closed" and "state_reason" not in changes:
             issue.state_reason = "completed"
-        issue.updated_at = self._now()
+        if set(changes) - {"parent", "blocked_by"}:
+            issue.updated_at = self._now()  # a link change alone leaves updated_at alone, as on GitHub
+        else:
+            self._now()
         self._event(number, "edited_on_github", ", ".join(sorted(changes)), actor)
 
     def reset_counters(self) -> None:
@@ -96,6 +99,13 @@ class FakeGitHub:
             found = [i for i in found if set(i.labels) & set(labels)]
         self._read(max(1, math.ceil(len(found) / PAGE_SIZE)))
         return copy.deepcopy(sorted(found, key=lambda i: i.number))
+
+    async def list_changes(self, since: str, labels: list[str]) -> list[Issue]:
+        open_records = [i for i in self.issues.values() if i.state == "open" and set(i.labels) & set(labels)]
+        changed = [i for i in self.issues.values() if i.updated_at >= since]
+        self._read(max(1, math.ceil(len(open_records) / PAGE_SIZE), math.ceil(len(changed) / PAGE_SIZE)))
+        found = {i.number: i for i in [*open_records, *changed]}
+        return copy.deepcopy(sorted(found.values(), key=lambda i: i.number))
 
     async def create_issue(
         self,
@@ -231,7 +241,7 @@ class FakeGitHub:
             raise GitHubError("Validation Failed: too many sub-issues", status=422, operation=operation)
         child_issue.parent = parent
         parent_issue.sub_issues.append(child)
-        parent_issue.updated_at = child_issue.updated_at = self._now()
+        self._now()  # GitHub does not bump updated_at for a link change (seen 2026-10-03)
         self._write("add_sub_issue", (parent, child))
         self._event(parent, "sub_issue_added", f"#{child}")
         self._event(child, "parent_issue_added", f"#{parent}")
@@ -243,7 +253,7 @@ class FakeGitHub:
             raise GitHubError("Not Found", status=404, operation=operation)
         child_issue.parent = None
         parent_issue.sub_issues.remove(child)
-        parent_issue.updated_at = child_issue.updated_at = self._now()
+        self._now()  # GitHub does not bump updated_at for a link change (seen 2026-10-03)
         self._write("remove_sub_issue", (parent, child))
         self._event(parent, "sub_issue_removed", f"#{child}")
         self._event(child, "parent_issue_removed", f"#{parent}")
@@ -258,18 +268,19 @@ class FakeGitHub:
         if blocker in issue.blocked_by:
             raise GitHubError("Validation Failed: the dependency already exists", status=422, operation=operation)
         issue.blocked_by.append(blocker)
-        issue.updated_at = blocking.updated_at = self._now()
+        self._now()  # GitHub does not bump updated_at for a link change (seen 2026-10-03)
         self._write("add_blocked_by", (number, blocker))
         self._event(number, "blocked_by_added", f"#{blocker}")
         self._event(blocker, "blocking_added", f"#{number}")
 
     async def remove_blocked_by(self, number: int, blocker: int, blocker_id: int) -> None:
         operation = f"unmark #{number} blocked by #{blocker}"
-        issue, blocking = self._issue(number, operation), self._issue(blocker, operation)
+        issue = self._issue(number, operation)
+        self._issue(blocker, operation)
         if blocker not in issue.blocked_by:
             raise GitHubError("Not Found", status=404, operation=operation)
         issue.blocked_by.remove(blocker)
-        issue.updated_at = blocking.updated_at = self._now()
+        self._now()  # GitHub does not bump updated_at for a link change (seen 2026-10-03)
         self._write("remove_blocked_by", (number, blocker))
         self._event(number, "blocked_by_removed", f"#{blocker}")
         self._event(blocker, "blocking_removed", f"#{number}")

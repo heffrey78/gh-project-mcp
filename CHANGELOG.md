@@ -17,5 +17,5 @@ First version. A ground-up successor to lifecycle-mcp that keeps its records as 
 - A read-only mode, a label prefix, a call log, GitHub Enterprise by base URL
 - A test suite that runs against an in-memory GitHub and cannot open a connection or spawn a process
 
-Read paths have been run against real GitHub; writes have not. See "What has and has not been run against real
-GitHub" in CLAUDE.md.
+Run against a real private sandbox repository: contract tests and a whole lifecycle over stdio. What that found,
+and what changed because of it, is in docs/live-run.md.

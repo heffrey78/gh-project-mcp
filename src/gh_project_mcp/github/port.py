@@ -92,6 +92,14 @@ class GitHub(Protocol):
         With `since`, those updated at or after it; with `labels`, those carrying at least one of them.
         """
 
+    async def list_changes(self, since: str, labels: list[str]) -> list[Issue]:
+        """What a refresh needs, in one request where it fits: every open issue carrying one of `labels`, with its
+        current links, and every issue updated at or after `since`.
+
+        Both halves are needed. GitHub does not bump an issue's updated_at when a sub-issue or blocked-by link is
+        added or removed, so `since` alone would never see a link someone changed on github.com.
+        """
+
     async def create_issue(
         self,
         title: str,

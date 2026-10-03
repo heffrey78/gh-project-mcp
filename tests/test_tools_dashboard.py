@@ -137,7 +137,7 @@ async def test_no_read_tool_writes(app, github):
 
 
 async def test_request_budget_for_200_records(github):
-    """REQ-0002-NFUNC-00: cold at most 4 requests, warm at most 1, a new task at most 4."""
+    """REQ-0002-NFUNC-00: cold at most 4 requests, warm one per 100 open records, a new task at most 4."""
     requirements = [seed(github, "requirement", status="Approved") for _ in range(4)]
     for index in range(196):  # 49 under each: GitHub allows a parent 100 sub-issues
         seed(github, "task", parent=requirements[index % 4], status="Complete" if index % 2 else None)
@@ -150,12 +150,19 @@ async def test_request_budget_for_200_records(github):
 
     github.reset_counters()
     await call(app, "get_status")
+    assert github.requests == 2  # 102 open records: two pages of them, with whatever changed in the first
+
+    for number in range(7, 201, 2):  # finish the open work but one task, leaving 5 records open
+        github.behind_the_back(number, state="closed")
+    await call(app, "get_status")
+    github.reset_counters()
+    await call(app, "get_status")
     assert github.requests == 1
 
     github.behind_the_back(5, state="closed")
     github.reset_counters()
     seen = await call(app, "get_status")
-    assert seen.structured_content["counts"]["task"] == {"Not Started": 97, "Complete": 99} and github.requests == 1
+    assert seen.structured_content["counts"]["task"] == {"Complete": 196} and github.requests == 1
 
     app._tracker._labels_ready = True  # labels are checked once per process, on the first write
     github.reset_counters()

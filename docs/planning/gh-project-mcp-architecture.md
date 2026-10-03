@@ -1,6 +1,6 @@
 # gh-project-mcp v1: lifecycle tracking on GitHub issues - Architecture Documentation
 
-Generated on: 2026-10-02 15:33:38
+Generated on: 2026-10-03 08:11:04
 
 **Project**: PROJ-0001 [Active]
 
@@ -26,7 +26,7 @@ Generated on: 2026-10-02 15:33:38
 - **Type**: ADR
 - **Status**: Proposed
 - **Created**: 2026-10-02 18:53:23
-- **Updated**: 2026-10-02 19:33:33
+- **Updated**: 2026-10-03 12:10:43
 
 - **Authors**: Claude
 
@@ -34,7 +34,7 @@ Generated on: 2026-10-02 15:33:38
 lifecycle-mcp is a SQLite application with an optional one-way mirror of tasks to GitHub issues. A GitHub-based successor could keep that shape (local database as truth, GitHub as a synchronised view) or make GitHub the truth. Sync is where the original's GitHub code spent its complexity: ETags, conflict detection, last-sync timestamps, and a rule that edits are 'not pushed to a linked GitHub issue'. People will edit issues on github.com whatever the server does, so any local copy is wrong as soon as they do.
 
 ### Decision
-GitHub is the single source of truth. The server holds no database and writes no state to disk. It keeps an in-memory snapshot of the tracker for the life of the process, purely as a read cache. The first listing asks only for issues carrying a kind label, one GraphQL page per 100, so a repository's other issues cost nothing. Before every later tool call the snapshot is refreshed by asking for every issue updated since a cursor, labelled or not, which is also how a record whose kind label was removed is noticed and dropped. After the cold load the cursor is GitHub's own clock (the Date header of the answer) less two minutes, never the local clock and not the newest record's timestamp: in a repository busy with unrelated issues the latter would fetch all of them once. The server's own writes are folded into the snapshot without a refetch; a write's REST response carries no links, so links are kept from the snapshot and the sub-issue tree is derived from each child's own parent, so the two ends of a link cannot disagree when only one was refreshed. Tool calls run one at a time, since they share the snapshot. Anything the server needs to remember (blocked reason, evidence, amendments) is written onto the issue as a label, body section or comment.
+GitHub is the single source of truth. The server holds no database and writes no state to disk. It keeps an in-memory snapshot of the tracker for the life of the process, purely as a read cache. The first listing asks only for issues carrying a kind label, one GraphQL page per 100, so a repository's other issues cost nothing. Before every later tool call the snapshot is refreshed by one GraphQL query with two halves: every open record with its current links, and every issue updated since a cursor, labelled or not. Both halves are needed. GitHub does not bump updated_at when a sub-issue or blocked-by link changes (measured 2026-10-03), so the open half is what sees links made on github.com, and the since half is what sees an issue closed, edited or stripped of its kind label. After the cold load the cursor is GitHub's own clock (the Date header of the answer) less two minutes, never the local clock and not the newest record's timestamp: in a repository busy with unrelated issues the latter would fetch all of them once. The server's own writes are folded into the snapshot without a refetch; a write's REST response carries no links, so links are kept from the snapshot and the sub-issue tree is derived from each child's own parent. Tool calls run one at a time, since they share the snapshot. Anything the server needs to remember (blocked reason, evidence, amendments) is written onto the issue as a label, body section or comment.
 
 ### Decision Drivers
 - People edit issues directly, so the server must treat GitHub as authoritative on every read
@@ -64,8 +64,8 @@ GitHub is the single source of truth. The server holds no database and writes no
 - Request-count assertions in REQ-0002-NFUNC-00 pass against the fake
 
 ### Risk Assessment
-- Risk: the incremental refresh misses a change (sub-issue and dependency edits may not bump an issue's updated_at). Likelihood: medium. Impact: stale links in the dashboard. Mitigation: verify in the live run; if links do not bump updated_at, re-fetch link fields for open records on refresh, or fall back to a full refetch with a short time-to-live
-- Risk: trackers of thousands of issues make the cold fetch slow. Likelihood: low for v1. Impact: slow first call. Mitigation: only issues carrying a lifecycle kind label are fetched; closed records older than a cut-off can be left out later
+- Settled on 2026-10-03: link changes do not bump updated_at. Mitigated by reading open records' links on every refresh, at one request per 100 open records. Remaining gap: a link changed by hand on a closed record is not seen until that issue changes in some other way
+- Risk: trackers with thousands of open records make every refresh several requests. Likelihood: low for v1. Impact: slower calls. Mitigation: none yet; a time-to-live on the open half would trade freshness for requests
 
 ### Linked Requirements
 - REQ-0001-FUNC-00: Requirements, decisions and tasks are GitHub issues a person can read and edit

@@ -22,11 +22,7 @@ logger = logging.getLogger(__name__)
 API_VERSION = "2022-11-28"
 PAGE_SIZE = 100
 
-SNAPSHOT_QUERY = """
-query($owner: String!, $name: String!, $cursor: String, $since: DateTime, $labels: [String!]) {
-  repository(owner: $owner, name: $name) {
-    issues(first: 100, after: $cursor, labels: $labels, filterBy: {since: $since},
-           orderBy: {field: CREATED_AT, direction: ASC}) {
+_ISSUE_FIELDS = """
       pageInfo { hasNextPage endCursor }
       nodes {
         number fullDatabaseId title body state stateReason url createdAt updatedAt
@@ -38,10 +34,36 @@ query($owner: String!, $name: String!, $cursor: String, $since: DateTime, $label
         subIssues(first: 100) { nodes { number } }
         blockedBy(first: 50) { nodes { number } }
       }
-    }
+"""
+
+SNAPSHOT_QUERY = (
+    """
+query($owner: String!, $name: String!, $cursor: String, $since: DateTime, $labels: [String!], $states: [IssueState!]) {
+  repository(owner: $owner, name: $name) {
+    issues(first: 100, after: $cursor, labels: $labels, states: $states, filterBy: {since: $since},
+           orderBy: {field: CREATED_AT, direction: ASC}) {"""
+    + _ISSUE_FIELDS
+    + """    }
   }
 }
 """
+)
+
+# A refresh in one request: the open records with their current links, and whatever changed since.
+CHANGES_QUERY = (
+    """
+query($owner: String!, $name: String!, $since: DateTime!, $labels: [String!]) {
+  repository(owner: $owner, name: $name) {
+    open: issues(first: 100, labels: $labels, states: [OPEN], orderBy: {field: CREATED_AT, direction: ASC}) {"""
+    + _ISSUE_FIELDS
+    + """    }
+    changed: issues(first: 100, filterBy: {since: $since}, orderBy: {field: CREATED_AT, direction: ASC}) {"""
+    + _ISSUE_FIELDS
+    + """    }
+  }
+}
+"""
+)
 
 
 def _token_from_gh(api_url: str) -> str | None:
@@ -106,6 +128,19 @@ def _milestone(data: dict[str, Any]) -> Milestone:
     )
 
 
+# A link event names the issue at its other end under a key of its own (seen on github.com, 2026-10-03).
+_LINK_EVENTS = {
+    "sub_issue_added": "sub_issue",
+    "sub_issue_removed": "sub_issue",
+    "parent_issue_added": "parent_issue",
+    "parent_issue_removed": "parent_issue",
+    "blocked_by_added": "blocked_by",
+    "blocked_by_removed": "blocked_by",
+    "blocking_added": "blocking",
+    "blocking_removed": "blocking",
+}
+
+
 def _event(data: dict[str, Any]) -> Event:
     kind = data.get("event", "")
     actor = (data.get("actor") or data.get("user") or {}).get("login", "")
@@ -122,6 +157,9 @@ def _event(data: dict[str, Any]) -> Event:
         detail = (data.get("milestone") or {}).get("title", "")
     elif kind in ("assigned", "unassigned"):
         detail = (data.get("assignee") or {}).get("login", "")
+    elif kind in _LINK_EVENTS:
+        other = data.get(_LINK_EVENTS[kind]) or {}
+        detail = f"#{other['number']}" if other.get("number") else ""
     elif kind == "cross-referenced":
         source = (data.get("source") or {}).get("issue") or {}
         detail = f"#{source['number']}" if source.get("number") else ""
@@ -234,18 +272,39 @@ class HttpGitHub:
     # -- issues -------------------------------------------------------------------------------------------------
 
     async def list_issues(self, since: str | None = None, labels: list[str] | None = None) -> list[Issue]:
+        return await self._listing({"since": since, "labels": labels, "states": None})
+
+    async def _listing(self, filters: dict[str, Any], after: str | None = None) -> list[Issue]:
+        """Every page of one filtered listing, from `after`."""
         issues: list[Issue] = []
-        cursor = None
+        cursor = after
         while True:
-            variables = {"owner": self._owner, "name": self._name, "cursor": cursor, "since": since, "labels": labels}
-            data = await self._graphql("list issues", SNAPSHOT_QUERY, variables)
-            if data.get("repository") is None:
-                raise GitHubError(f"the repository {self.repo} was not found", status=404, operation="list issues")
-            page = data["repository"]["issues"]
+            variables = {"owner": self._owner, "name": self._name, "cursor": cursor, **filters}
+            page = self._repository(await self._graphql("list issues", SNAPSHOT_QUERY, variables))["issues"]
             issues += [_issue_from_graphql(node) for node in page["nodes"]]
             if not page["pageInfo"]["hasNextPage"]:
                 return issues
             cursor = page["pageInfo"]["endCursor"]
+
+    def _repository(self, data: dict[str, Any]) -> dict[str, Any]:
+        if data.get("repository") is None:
+            raise GitHubError(f"the repository {self.repo} was not found", status=404, operation="list issues")
+        return data["repository"]
+
+    async def list_changes(self, since: str, labels: list[str]) -> list[Issue]:
+        variables = {"owner": self._owner, "name": self._name, "since": since, "labels": labels}
+        repository = self._repository(await self._graphql("refresh", CHANGES_QUERY, variables))
+        found: dict[int, Issue] = {}
+        for name, filters in (
+            ("open", {"since": None, "labels": labels, "states": ["OPEN"]}),
+            ("changed", {"since": since, "labels": None, "states": None}),
+        ):
+            page = repository[name]
+            issues = [_issue_from_graphql(node) for node in page["nodes"]]
+            if page["pageInfo"]["hasNextPage"]:
+                issues += await self._listing(filters, after=page["pageInfo"]["endCursor"])
+            found.update((issue.number, issue) for issue in issues)
+        return sorted(found.values(), key=lambda issue: issue.number)
 
     async def create_issue(
         self,

@@ -207,7 +207,9 @@ These follow from keeping records in GitHub's own features:
 - **A requirement is in one project**, because an issue has one milestone.
 - **A parent holds at most 100 sub-issues**, eight levels deep. That is GitHub's limit.
 - **No offline use.** Every call talks to GitHub. Reading the whole tracker costs one request per 100 records the
-  first time and one request per call after that.
+  first time, and after that one request per call for every 100 open records.
+- **A link changed by hand on a closed issue is seen late.** GitHub does not date link changes, so the server reads
+  the links of open records on every call; a closed one's links are re-read only when that issue changes otherwise.
 - **Records are not deleted.** Close a mistake as Deprecated, Abandoned or Rejected.
 - **A status label is only a label.** The server cannot tell whether a person or an agent applied `status:approved`.
 - **Personal and organisation repositories both work.** GitHub Projects boards and organisation issue types are
